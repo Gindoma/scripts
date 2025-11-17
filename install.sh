@@ -337,9 +337,6 @@ echo "kernel.dmesg_restrict = 1" > /etc/sysctl.d/50-dmesg-restrict.conf
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 
-# Flatpak
-flatpak remote-add --if-not-exists --system flathub https://flathub.org/repo/flathub.flatpakrepo || true
-
 # Data
 mkdir -p /data/Dokumente /data/Downloads /data/Bilder /data/Videos /data/Projects
 chown -R $USERNAME:$USERNAME /data
