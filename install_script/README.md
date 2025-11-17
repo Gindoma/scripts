@@ -64,4 +64,4 @@ Boot your machine using the latest [Arch Linux ISO](https://archlinux.org/downlo
 Connect to the internet and run the following command:
 
 ```bash
-bash <(curl -L [https://raw.githubusercontent.com/Gindoma/scripts/main/install.sh])>
+curl -L https://raw.githubusercontent.com/Gindoma/scripts/main/install.sh | bash
