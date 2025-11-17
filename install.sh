@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 
 # ==============================================================================
-#  ARCH LINUX INSTALLER V39 (ZSH TTY Fix, Cinema Mode, AMD Drivers)
+#  ARCH LINUX INSTALLER V40 (Minimalist Prompt, Cinema Mode, Clean TTY)
 # ==============================================================================
 
 # --- COLORS ---
@@ -308,16 +308,15 @@ mkinitcpio -P >/dev/null 2>&1
 useradd -m -G wheel,video,audio,storage,docker -s /usr/bin/zsh $USERNAME
 sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# --- ZSH CONFIGURATION (ROBUST FIX) ---
-# We use cat with SINGLE QUOTES for the delimiter 'EOZSH'
-# This prevents Bash from trying to interpret anything inside.
+# --- ZSH CONFIGURATION (CLEAN & SIMPLE) ---
 cat <<'EOZSH' > /home/$USERNAME/.zshrc
 # Plugins
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
-# Simple, Robust Prompt (Green User @ Blue Host)
-PROMPT="%F{green}%n%f@%F{blue}%m%f %F{yellow}%~%f %# "
+# Minimalist Prompt (No Colors, just Text)
+# Format: [user@host] ~/current/dir >
+PROMPT="[%n@%m] %~ > "
 
 # History
 HISTFILE=~/.zsh_history
@@ -398,5 +397,5 @@ summary_item "Interface" "Pure TTY (Console)"
 summary_item "Time Taken" "$((DURATION / 60))m $((DURATION % 60))s"
 echo ""
 line
-center "Reboot now. Enjoy your Clean Arch." "$CYAN"
+center "Reboot now. Login and enjoy your Clean Arch." "$CYAN"
 echo ""
