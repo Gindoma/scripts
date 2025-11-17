@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 
 # ==============================================================================
-#  ARCH LINUX INSTALLER V36 (Cinema Mode, ZSH Fix, Clean UI)
+#  ARCH LINUX INSTALLER V38 (ZSH Prompt Fix, Cinema Mode, No GUI)
 # ==============================================================================
 
 # --- COLORS ---
@@ -46,12 +46,11 @@ box() {
     echo ""
 }
 
-# --- CINEMA MODE (QUOTES & SPINNER) ---
+# --- CINEMA MODE ---
 run_task_cinema() {
     local message="$1"
     local command="$2"
     
-    # Quotes Array
     QUOTES=(
         "Wake up, Neo... (The Matrix)"
         "I'll be back. (Terminator)"
@@ -69,7 +68,6 @@ run_task_cinema() {
         "Installing Arch is cheaper than therapy."
     )
     
-    # Run command in background
     eval "$command" >> "$LOG" 2>&1 &
     local pid=$!
     
@@ -78,21 +76,16 @@ run_task_cinema() {
     local spinstr='|/-\'
     local quote_index=0
     
-    # Hide Cursor
     tput civis
-    
     printf "  ${WHITE}%-30s${NC}" "$message"
     
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        # Spinner Logic
         local temp=${spinstr#?}
         printf " [${CYAN}%c${NC}] " "$spinstr"
         local spinstr=$temp${spinstr%"$temp"}
         
-        # Quote Logic (Change every 50 cycles / 5 seconds)
         if [ $quote_delay -eq 0 ]; then
             quote_index=$((RANDOM % ${#QUOTES[@]}))
-            # Clear line from cursor to end
             tput el
             printf "${GRAY}:: %s${NC}" "${QUOTES[$quote_index]}"
             quote_delay=50
@@ -100,17 +93,12 @@ run_task_cinema() {
         ((quote_delay--))
         
         sleep $delay
-        # Move cursor back to start of spinner/quote area (matches the printf above)
         printf "\r  ${WHITE}%-30s${NC}" "$message"
     done
     
-    # Restore Cursor
     tput cnorm
-    
     wait $pid
     local exit_code=$?
-    
-    # Clear the quote line for clean status
     tput el 
     
     if [ $exit_code -eq 0 ]; then
@@ -123,17 +111,35 @@ run_task_cinema() {
     fi
 }
 
-# Standard Task Runner
+# --- STANDARD SPINNER ---
 run_task() {
     local message="$1"
     local command="$2"
     printf "  ${WHITE}%-50s${NC}" "$message"
     
-    if eval "$command" >> "$LOG" 2>&1; then
+    eval "$command" >> "$LOG" 2>&1 &
+    local pid=$!
+    local delay=0.1
+    local spinstr='|/-\'
+    
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [${CYAN}%c${NC}]" "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b"
+    done
+    
+    wait $pid
+    local exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
         printf " [${GREEN}OK${NC}]\n"
     else
         printf " [${RED}FAIL${NC}]\n"
-        echo -e "${RED}Log: $LOG${NC}"
+        echo ""
+        echo -e "${RED}!!! ERROR DETECTED !!! Check details below:${NC}"
+        tail -n 10 "$LOG"
         exit 1
     fi
 }
@@ -147,7 +153,7 @@ summary_item() {
 
 cleanup() {
     if [ $? -ne 0 ]; then
-        tput cnorm # Restore cursor if crashed
+        tput cnorm
         echo ""
         center "!!! SCRIPT INTERRUPTED !!!" "$RED"
         echo -e "${GRAY}Log saved at: $LOG${NC}"
@@ -259,18 +265,11 @@ run_task "Mounting Boot" "mkdir -p /mnt/boot && mount $PART1 /mnt/boot"
 run_task "Mounting Swap" "swapon /dev/mapper/$VG_NAME-swap"
 run_task "Mounting Data" "mkdir -p /mnt/data && mount -o noexec /dev/mapper/$VG_NAME-data /mnt/data"
 
-# --- 7. INSTALLATION (CINEMA MODE) ---
+# --- 7. INSTALLATION ---
 box "SYSTEM INSTALLATION" "$GREEN"
+# CINEMA MODE
+run_task_cinema "Downloading & Installing Packages" "pacstrap /mnt base base-devel linux linux-headers linux-firmware lvm2 grub efibootmgr networkmanager git sudo man-db ufw zsh zsh-autosuggestions zsh-syntax-highlighting neovim ripgrep fd npm docker apparmor polkit amd-ucode mesa vulkan-radeon libva-mesa-driver"
 
-# Core
-PKGS="base base-devel linux linux-headers linux-firmware lvm2 grub efibootmgr networkmanager git sudo man-db ufw"
-# Tools
-PKGS="$PKGS zsh zsh-autosuggestions zsh-syntax-highlighting neovim ripgrep fd npm docker"
-# Security & AMD
-PKGS="$PKGS apparmor polkit amd-ucode mesa vulkan-radeon libva-mesa-driver"
-
-# USE NEW CINEMA FUNCTION HERE
-run_task_cinema "Installing Packages" "pacstrap /mnt $PKGS"
 run_task "Generating fstab" "genfstab -U /mnt >> /mnt/etc/fstab"
 
 # --- 8. INTERNAL CONFIGURATION ---
@@ -309,22 +308,28 @@ mkinitcpio -P >/dev/null 2>&1
 useradd -m -G wheel,video,audio,storage,docker -s /usr/bin/zsh $USERNAME
 sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# --- ZSH CONFIGURATION (SIMPLE & CLEAN) ---
-cat <<ZSHRC > /home/$USERNAME/.zshrc
-# Plugins
+# --- ZSH CONFIGURATION (QUOTED HEREDOC FIX) ---
+# Using 'EOZSH' prevents Bash from expanding variables during install
+cat <<'EOZSH' > /home/$USERNAME/.zshrc
+# ZSH Configuration
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-# Standard Arch Prompt is fine, no custom PROMPT needed to avoid errors
-HISTFILE=~/.histfile
+
+# Prompt (Green User @ Blue Host in Dir)
+autoload -U colors && colors
+PROMPT="%F{green}%n%f@%F{blue}%m%f %F{yellow}%~%f %# "
+
+# History
+HISTFILE=~/.zsh_history
 HISTSIZE=1000
 SAVEHIST=1000
 setopt autocd
 bindkey -v
 alias ll='ls -la'
-ZSHRC
+EOZSH
 chown $USERNAME:$USERNAME /home/$USERNAME/.zshrc
 
-# Security Hardening
+# Security
 mkdir -p /etc/systemd/resolved.conf.d
 echo "[Resolve]" > /etc/systemd/resolved.conf.d/dns_over_tls.conf
 echo "DNS=9.9.9.9 149.112.112.112" >> /etc/systemd/resolved.conf.d/dns_over_tls.conf
@@ -336,7 +341,7 @@ ufw default allow outgoing >/dev/null
 # Flatpak
 flatpak remote-add --if-not-exists --system flathub https://flathub.org/repo/flathub.flatpakrepo || true
 
-# Data Separation
+# Data
 mkdir -p /data/Dokumente /data/Downloads /data/Bilder /data/Videos /data/Projects
 chown -R $USERNAME:$USERNAME /data
 rm -rf /home/$USERNAME/Downloads && ln -s /data/Downloads /home/$USERNAME/Downloads
