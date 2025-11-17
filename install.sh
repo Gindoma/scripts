@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 
 # ==============================================================================
-#  ARCH LINUX INSTALLER V32 (Syntax Fix, Kitty, Max Performance)
+#  ARCH LINUX INSTALLER V33 (Clean Core, Spinner UI, No GUI, Fix Syntax)
 # ==============================================================================
 
 # --- COLORS ---
@@ -46,19 +46,41 @@ box() {
     echo ""
 }
 
+# ANIMATED SPINNER (From V30)
 run_task() {
     local message="$1"
     local command="$2"
+    
+    # Print message without newline
     printf "  ${WHITE}%-50s${NC}" "$message"
     
-    # Run command in background and capture logs
-    if eval "$command" >> "$LOG" 2>&1; then
+    # Run command in background, redirect output to log
+    eval "$command" >> "$LOG" 2>&1 &
+    local pid=$!
+    
+    local delay=0.1
+    local spinstr='|/-\'
+    
+    # Spin while process is running
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [${CYAN}%c${NC}]" "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b"
+    done
+    
+    # Check exit status
+    wait $pid
+    local exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
         printf " [${GREEN}OK${NC}]\n"
     else
         printf " [${RED}FAIL${NC}]\n"
         echo ""
-        echo -e "${RED}!!! ERROR DETECTED !!! Last 5 log lines:${NC}"
-        tail -n 5 "$LOG"
+        echo -e "${RED}!!! ERROR DETECTED !!! Check details below:${NC}"
+        tail -n 10 "$LOG"
         exit 1
     fi
 }
@@ -89,11 +111,9 @@ rm -f "$LOG"
 # --- 1. INITIALIZATION ---
 box "ARCH LINUX INSTALLER // INITIALIZATION" "$CYAN"
 
-# Enable Parallel Downloads (Performance!)
 sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
 grep -q "ILoveCandy" /etc/pacman.conf || sed -i '/ParallelDownloads/a ILoveCandy' /etc/pacman.conf
 
-# Cleanup
 umount -R /mnt 2>/dev/null || true
 vgchange -an 2>/dev/null || true
 cryptsetup close cryptlvm 2>/dev/null || true
@@ -196,8 +216,7 @@ PKGS="base base-devel linux linux-headers linux-firmware lvm2 grub efibootmgr ne
 PKGS="$PKGS zsh zsh-autosuggestions zsh-syntax-highlighting neovim ripgrep fd npm docker"
 # Security
 PKGS="$PKGS apparmor polkit amd-ucode"
-# Desktop (Hyprland + Kitty) - Ghostty removed as it's not in standard repos
-PKGS="$PKGS hyprland hyprlock hypridle waybar wofi xdg-desktop-portal-hyprland xdg-desktop-portal-gtk kitty thunar ttf-jetbrains-mono-nerd"
+# NOTE: HYPRLAND & GUI REMOVED as requested
 
 run_task "Installing Packages" "pacstrap /mnt $PKGS"
 run_task "Generating fstab" "genfstab -U /mnt >> /mnt/etc/fstab"
@@ -211,14 +230,17 @@ else
     MODULES_CONFIG="MODULES=(amdgpu)" 
 fi
 
-# Generate Internal Script (Using EO_CONFIG to avoid Syntax Errors)
-cat <<EO_CONFIG > /mnt/config_internal.sh
+# --- GENERATE CONFIG SCRIPT (Fixes Syntax Error) ---
+# We write the chroot commands to a file first to avoid Heredoc issues in run_task
+cat <<EO_CONFIG > /mnt/setup_internal.sh
 #!/bin/bash
-# Optimize Pacman (10 Threads)
+set -e
+
+# 1. Optimize Pacman (10 Threads)
 sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 10/' /etc/pacman.conf
 grep -q "ILoveCandy" /etc/pacman.conf || sed -i '/ParallelDownloads/a ILoveCandy' /etc/pacman.conf
 
-# Locale
+# 2. Locale & Time
 ln -sf /usr/share/zoneinfo/Europe/Vienna /etc/localtime
 hwclock --systohc
 echo "de_DE.UTF-8 UTF-8" > /etc/locale.gen
@@ -227,16 +249,16 @@ echo "LANG=de_DE.UTF-8" > /etc/locale.conf
 echo "KEYMAP=de-latin1" > /etc/vconsole.conf
 echo "$HOSTNAME" > /etc/hostname
 
-# Initramfs
+# 3. Initramfs
 sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems fsck)/' /etc/mkinitcpio.conf
 sed -i "s/^MODULES=.*/$MODULES_CONFIG/" /etc/mkinitcpio.conf
 mkinitcpio -P >/dev/null 2>&1
 
-# User
+# 4. User & Shell
 useradd -m -G wheel,video,audio,storage,docker -s /usr/bin/zsh $USERNAME
 sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# Security
+# 5. Security Hardening
 mkdir -p /etc/systemd/resolved.conf.d
 echo "[Resolve]" > /etc/systemd/resolved.conf.d/dns_over_tls.conf
 echo "DNS=9.9.9.9 149.112.112.112" >> /etc/systemd/resolved.conf.d/dns_over_tls.conf
@@ -245,5 +267,67 @@ echo "kernel.dmesg_restrict = 1" > /etc/sysctl.d/50-dmesg-restrict.conf
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 
-# Flatpak
-flatpak remote-add --if-not-exists --system flathub https://flathub.org/repo/flathub.
+# 6. Flatpak
+flatpak remote-add --if-not-exists --system flathub https://flathub.org/repo/flathub.flatpakrepo || true
+
+# 7. Data Separation
+mkdir -p /data/Dokumente /data/Downloads /data/Bilder /data/Videos /data/Projects
+chown -R $USERNAME:$USERNAME /data
+rm -rf /home/$USERNAME/Downloads && ln -s /data/Downloads /home/$USERNAME/Downloads
+rm -rf /home/$USERNAME/Documents && ln -s /data/Dokumente /home/$USERNAME/Documents
+rm -rf /home/$USERNAME/Pictures  && ln -s /data/Bilder    /home/$USERNAME/Pictures
+rm -rf /home/$USERNAME/Videos    && ln -s /data/Videos    /home/$USERNAME/Videos
+ln -s /data/Projects /home/$USERNAME/Projects
+chown -h $USERNAME:$USERNAME /home/$USERNAME/Downloads /home/$USERNAME/Documents /home/$USERNAME/Pictures /home/$USERNAME/Videos /home/$USERNAME/Projects
+
+# 8. LazyVim Setup
+sudo -u $USERNAME mkdir -p /home/$USERNAME/.config
+sudo -u $USERNAME git clone https://github.com/LazyVim/starter /home/$USERNAME/.config/nvim >/dev/null 2>&1
+rm -rf /home/$USERNAME/.config/nvim/.git
+
+# 9. Bootloader
+UUID=\$(cryptsetup luksUUID $PART2)
+sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"loglevel=3 quiet cryptdevice=UUID=\$UUID:$VG_NAME root=/dev/$VG_NAME/root apparmor=1 security=apparmor lsm=landlock,lockdown,yama,integrity,apparmor,bpf\"|" /etc/default/grub
+grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB >/dev/null 2>&1
+grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1
+
+# 10. Services
+systemctl enable NetworkManager
+systemctl enable apparmor
+systemctl enable ufw
+systemctl enable docker
+systemctl enable systemd-resolved
+EO_CONFIG
+
+chmod +x /mnt/setup_internal.sh
+
+# Run the actual configuration via the spinner function
+run_task "Applying System Configuration" "arch-chroot /mnt /setup_internal.sh"
+rm /mnt/setup_internal.sh
+
+# --- 9. PASSWORDS ---
+box "SECURITY CREDENTIALS" "$YELLOW"
+center "Set ROOT Password:" "$WHITE"
+arch-chroot /mnt passwd
+echo ""
+center "Set USER Password ($USERNAME):" "$WHITE"
+arch-chroot /mnt passwd $USERNAME
+
+# --- SUMMARY ---
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+
+box "INSTALLATION SUCCESSFUL" "$GREEN"
+echo ""
+summary_item "Hostname" "$HOSTNAME"
+summary_item "User" "$USERNAME (ZSH)"
+summary_item "Kernel" "Standard Linux"
+summary_item "Disk" "$DISK"
+summary_item "Storage" "Root: ${ROOT_NUM}G | Swap: ${SWAP_NUM}G"
+summary_item "Security" "UFW + AppArmor + DoT"
+summary_item "Interface" "Pure TTY (Console)"
+summary_item "Time Taken" "$((DURATION / 60))m $((DURATION % 60))s"
+echo ""
+line
+center "Reboot now. Enjoy your clean Arch system." "$CYAN"
+echo ""
