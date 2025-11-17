@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 
 # ==============================================================================
-#  ARCH LINUX INSTALLER V38 (ZSH Prompt Fix, Cinema Mode, No GUI)
+#  ARCH LINUX INSTALLER V39 (ZSH TTY Fix, Cinema Mode, AMD Drivers)
 # ==============================================================================
 
 # --- COLORS ---
@@ -308,15 +308,15 @@ mkinitcpio -P >/dev/null 2>&1
 useradd -m -G wheel,video,audio,storage,docker -s /usr/bin/zsh $USERNAME
 sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# --- ZSH CONFIGURATION (QUOTED HEREDOC FIX) ---
-# Using 'EOZSH' prevents Bash from expanding variables during install
+# --- ZSH CONFIGURATION (ROBUST FIX) ---
+# We use cat with SINGLE QUOTES for the delimiter 'EOZSH'
+# This prevents Bash from trying to interpret anything inside.
 cat <<'EOZSH' > /home/$USERNAME/.zshrc
-# ZSH Configuration
+# Plugins
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
-# Prompt (Green User @ Blue Host in Dir)
-autoload -U colors && colors
+# Simple, Robust Prompt (Green User @ Blue Host)
 PROMPT="%F{green}%n%f@%F{blue}%m%f %F{yellow}%~%f %# "
 
 # History
