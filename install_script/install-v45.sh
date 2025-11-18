@@ -175,7 +175,7 @@ safe_password_loop() {
             fi
             echo "" >&2
             if [ "$pass1" == "$pass2" ]; then
-                echo "$pass1" # Output the password
+                printf "%s" "$pass1" # Output the password
                 return 0
             else
                 echo "${RED}✗ Passwords don't match${NC}" >&2
@@ -733,17 +733,22 @@ echo ""
 if kill -0 $DOWNLOAD_PID 2>/dev/null;
  then
     printf "  ${WHITE}Waiting for package downloads...${NC}"
-    while kill -0 $DOWNLOAD_PID 2>/dev/null;
- do
-        printf "."
-        sleep 1
+    local spinstr='|/-\'
+    tput civis
+    while kill -0 $DOWNLOAD_PID 2>/dev/null; do
+        local temp=${spinstr#?}
+        printf " [${CYAN}%c${NC}]" "$spinstr"
+        spinstr=$temp${spinstr%"$temp"}
+        sleep 0.1
+        printf "\b\b\b\b"
     done
+    tput cnorm
     wait $DOWNLOAD_PID
     DOWNLOAD_EXIT=$?
     if [ $DOWNLOAD_EXIT -eq 0 ]; then
-        echo " ${GREEN}✓${NC}"
+        printf " [${GREEN}✓${NC}]\n"
     else
-        echo " ${RED}✗${NC}"
+        printf " [${RED}✗${NC}]\n"
         echo "${YELLOW}⚠ Package download failed, but continuing (will retry during pacstrap)${NC}"
     fi
 else
