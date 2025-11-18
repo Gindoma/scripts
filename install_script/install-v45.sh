@@ -137,12 +137,12 @@ validate_password_strength() {
     local len=${#pass}
 
     if [ "$len" -lt 12 ]; then
-        echo "${RED}✗ Password too short (minimum 12 characters)${NC}"
+        echo "${RED}✗ Password too short (minimum 12 characters)${NC}" >&2
         return 1
     fi
 
     if [[ ! "$pass" =~ [A-Z] ]] || [[ ! "$pass" =~ [a-z] ]] || [[ ! "$pass" =~ [0-9] ]]; then
-        echo "${YELLOW}⚠ Weak: Should contain uppercase, lowercase, and numbers${NC}"
+        echo "${YELLOW}⚠ Weak: Should contain uppercase, lowercase, and numbers${NC}" >&2
         read -r -p "Continue anyway? (y/n): " continue
         [[ "$continue" == "y" ]] || return 1
     fi
@@ -162,26 +162,29 @@ safe_password_loop() {
     while [ $iteration -lt $max_iterations ]; do
         ((iteration++))
         if ! read -r -s -p "  Password: " pass1; then
-            echo ""
-            echo "${RED}✗ Failed to read input${NC}"
+            echo "" >&2
+            echo "${RED}✗ Failed to read input${NC}" >&2
             exit 1
         fi
-        echo ""
+        echo "" >&2
         if validate_password_strength "$pass1"; then
             if ! read -r -s -p "  Confirm:  " pass2; then
-                echo ""
-                echo "${RED}✗ Failed to read input${NC}"
+                echo "" >&2
+                echo "${RED}✗ Failed to read input${NC}" >&2
                 exit 1
             fi
-            echo ""
+            echo "" >&2
             if [ "$pass1" == "$pass2" ]; then
                 echo "$pass1" # Output the password
                 return 0
             else
-                echo "${RED}✗ Passwords don't match${NC}"
-                echo ""
-                center "Please try again." "$YELLOW"
+                echo "${RED}✗ Passwords don't match${NC}" >&2
+                echo "" >&2
+                center "Please try again." "$YELLOW" >&2
             fi
+        else
+            echo "" >&2
+            center "Please try again." "$YELLOW" >&2
         fi
         [ $iteration -ge 3 ] && sleep 0.1
     done
