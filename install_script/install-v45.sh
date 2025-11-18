@@ -1,9 +1,8 @@
 #!/bin/bash
 # ==============================================================================
-#  ARCH LINUX INSTALLER V44 (Critical Fix - Infinite Loop Protection)
-#  FIX: Added stdin terminal check + loop iteration limits
-#  BUG: V43 spammed "input cannot be empty" when stdin wasn't a terminal
-#  ROOT CAUSE: read commands return immediately with empty string if stdin is EOF/non-terminal
+#  ARCH LINUX INSTALLER V45 (Refactored & Cleaned)
+#  FIX: Refactored password inputs into a reusable function.
+#  FIX: Removed redundant error checks.
 # ==============================================================================
 
 set -o pipefail
@@ -149,6 +148,45 @@ validate_password_strength() {
     fi
 
     return 0
+}
+
+# ==============================================================================
+# SAFE PASSWORD LOOP - Reads and validates a password with confirmation
+# ==============================================================================
+safe_password_loop() {
+    local max_iterations=100
+    local iteration=0
+    local pass1=""
+    local pass2=""
+
+    while [ $iteration -lt $max_iterations ]; do
+        ((iteration++))
+        if ! read -r -s -p "  Password: " pass1; then
+            echo ""
+            echo "${RED}✗ Failed to read input${NC}"
+            exit 1
+        fi
+        echo ""
+        if validate_password_strength "$pass1"; then
+            if ! read -r -s -p "  Confirm:  " pass2; then
+                echo ""
+                echo "${RED}✗ Failed to read input${NC}"
+                exit 1
+            fi
+            echo ""
+            if [ "$pass1" == "$pass2" ]; then
+                echo "$pass1" # Output the password
+                return 0
+            else
+                echo "${RED}✗ Passwords don't match${NC}"
+                echo ""
+                center "Please try again." "$YELLOW"
+            fi
+        fi
+        [ $iteration -ge 3 ] && sleep 0.1
+    done
+    echo "${RED}✗ Too many validation attempts${NC}" >&2
+    exit 1
 }
 
 # ==============================================================================
@@ -379,23 +417,10 @@ swapoff -a 2>/dev/null || true
 
 VG_NAME="vg0"
 
+# Execute tasks with explicit error handling (run_task exits on failure)
 run_task "Checking Internet Connection" "ping -c 1 -W 3 google.com"
-if [ $? -ne 0 ]; then
-    echo "${RED}Failed to check internet connection${NC}"
-    exit 1
-fi
-
 run_task "Initializing Pacman Keys" "pacman-key --init && pacman-key --populate archlinux"
-if [ $? -ne 0 ]; then
-    echo "${RED}Failed to initialize pacman keys${NC}"
-    exit 1
-fi
-
 run_task "Syncing Package Databases" "pacman -Sy --noconfirm"
-if [ $? -ne 0 ]; then
-    echo "${RED}Failed to sync databases${NC}"
-    exit 1
-fi
 
 # ==============================================================================
 # PHASE 2: CONFIGURATION WIZARD (ALL USER INPUT)
@@ -497,79 +522,26 @@ if [ $iteration -ge $max_iter ]; then
 fi
 
 # --- ROOT PASSWORD ---
+
 box "2" "CONFIGURATION WIZARD - Security" "$MAGENTA"
-ROOT_PASS=""
-iteration=0
-while [ $iteration -lt $max_iter ]; do
-    ((iteration++))
-    echo ""
-    center "Set ROOT Password (min 12 chars, mixed case + numbers):" "$YELLOW"
-    if ! read -r -s -p "  Password: " pass1;
- then
-        echo ""
-        echo "${RED}✗ Failed to read input${NC}"
-        exit 1
-    fi
-    echo ""
-    if validate_password_strength "$pass1"; then
-        if ! read -r -s -p "  Confirm:  " pass2;
- then
-            echo ""
-            echo "${RED}✗ Failed to read input${NC}"
-            exit 1
-        fi
-        echo ""
-        if [ "$pass1" == "$pass2" ]; then
-            ROOT_PASS="$pass1"
-            echo "${GREEN}✓ Root password set${NC}"
-            break
-        else
-            echo "${RED}✗ Passwords don't match${NC}"
-        fi
-    fi
-    [ $iteration -ge 3 ] && sleep 0.1
-done
-if [ $iteration -ge $max_iter ]; then
-    echo "${RED}✗ Too many validation attempts${NC}"
-    exit 1
-fi
+
+echo ""
+
+center "Set ROOT Password (min 12 chars, mixed case + numbers):" "$YELLOW"
+
+ROOT_PASS=$(safe_password_loop)
+
+echo "${GREEN}✓ Root password set${NC}"
 
 # --- USER PASSWORD ---
-USER_PASS=""
-iteration=0
-while [ $iteration -lt $max_iter ]; do
-    ((iteration++))
-    echo ""
-    center "Set USER Password for '$USERNAME':" "$YELLOW"
-    if ! read -r -s -p "  Password: " pass1;
- then
-        echo ""
-        echo "${RED}✗ Failed to read input${NC}"
-        exit 1
-    fi
-    echo ""
-    if validate_password_strength "$pass1"; then
-        if ! read -r -s -p "  Confirm:  " pass2;
- then
-            echo ""
-            echo "${RED}✗ Failed to read input${NC}"
-            exit 1
-        fi
-        echo ""
-        if [ "$pass1" == "$pass2" ]; then
-            USER_PASS="$pass1"
-            echo "${GREEN}✓ User password set${NC}"
-            break
-        else
-            echo "${RED}✗ Passwords don't match${NC}"
-        fi
-    fi
-    [ $iteration -ge 3 ] && sleep 0.1
-done
-if [ $iteration -ge $max_iter ]; then
-    echo "${RED}✗ Too many validation attempts${NC}"
-    exit 1
-fi
+
+echo ""
+
+center "Set USER Password for '$USERNAME':" "$YELLOW"
+
+USER_PASS=$(safe_password_loop)
+
+echo "${GREEN}✓ User password set${NC}"
 
 # --- PARTITION SIZES ---
 box "2" "CONFIGURATION WIZARD - Partitioning" "$MAGENTA"
@@ -625,44 +597,20 @@ if ! read -r -p "Is this a VM environment? (y/n): " IS_VM;
 fi
 
 # --- LUKS PASSWORD ---
+
 box "2" "CONFIGURATION WIZARD - Disk Encryption" "$YELLOW"
+
 echo ""
+
 center "Set DISK ENCRYPTION Password (LUKS2):" "$RED"
+
 center "⚠ This encrypts your entire system - DO NOT FORGET!" "$YELLOW"
+
 echo ""
-LUKS_PASS=""
-iteration=0
-while [ $iteration -lt $max_iter ]; do
-    ((iteration++))
-    if ! read -r -s -p "  Password: " pass1;
- then
-        echo ""
-        echo "${RED}✗ Failed to read input${NC}"
-        exit 1
-    fi
-    echo ""
-    if validate_password_strength "$pass1"; then
-        if ! read -r -s -p "  Confirm:  " pass2;
- then
-            echo ""
-            echo "${RED}✗ Failed to read input${NC}"
-            exit 1
-        fi
-        echo ""
-        if [ "$pass1" == "$pass2" ]; then
-            LUKS_PASS="$pass1"
-            echo "${GREEN}✓ Encryption password set${NC}"
-            break
-        else
-            echo "${RED}✗ Passwords don't match${NC}"
-        fi
-    fi
-    [ $iteration -ge 3 ] && sleep 0.1
-done
-if [ $iteration -ge $max_iter ]; then
-    echo "${RED}✗ Too many validation attempts${NC}"
-    exit 1
-fi
+
+LUKS_PASS=$(safe_password_loop)
+
+echo "${GREEN}✓ Encryption password set${NC}"
 
 # ==============================================================================
 # PHASE 3: CONFIRMATION SCREEN
