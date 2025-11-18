@@ -366,6 +366,14 @@ run_task() {
     fi
 }
 
+run_background_task() {
+    local message="$1"
+    local command="$2"
+    printf "  ${WHITE}%-50s${NC} [${CYAN}background${NC}]\n" "$message"
+    eval "$command" >> "$LOG" 2>&1 &
+    echo $! # return PID
+}
+
 summary_item() {
     local key="$1"
     local val="$2"
@@ -710,8 +718,7 @@ else
     PACKAGES="base base-devel linux linux-headers linux-firmware lvm2 grub efibootmgr networkmanager git sudo man-db ufw zsh zsh-autosuggestions zsh-syntax-highlighting neovim ripgrep fd npm docker apparmor polkit amd-ucode mesa vulkan-radeon libva-mesa-driver"
 fi
 
-run_task "Downloading Packages to Cache" "pacman -Sw --noconfirm $PACKAGES" &
-DOWNLOAD_PID=$!
+DOWNLOAD_PID=$(run_background_task "Downloading Packages to Cache" "pacman -Sw --noconfirm $PACKAGES")
 
 # ==============================================================================
 # PHASE 6: FORMATTING
@@ -804,7 +811,7 @@ echo "KEYMAP=de-latin1" > /etc/vconsole.conf
 echo "$HOSTNAME" > /etc/hostname
 
 # Initramfs
-sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems fsck)/' /etc/mkinitcpio.conf
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block keymap encrypt lvm2 filesystems fsck)/' /etc/mkinitcpio.conf
 sed -i "s/^MODULES=.*/$MODULES_CONFIG/" /etc/mkinitcpio.conf
 mkinitcpio -P >/dev/null 2>&1
 
